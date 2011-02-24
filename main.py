@@ -1,10 +1,30 @@
-from environment import Environment, Agent, Wall
+#!/usr/bin/python3.1 -OO
+
+from environment import Environment, Agent, Wall, FoodPatch
 from video import Video
 from age import Genome, Descriptor
 from time import asctime, time
 from sys import argv
 import cProfile
 
+DESCRIPTOR = Descriptor(alphabet = "ACGT",  # We use a biology-like alphabet
+                        # Neurons:
+                        devices = ["ACAA",  # Threshold activation function
+                                   "ACAC",  # Sigmoidal (exp) activation function
+                                   "ACAG"], # Linear activation function
+                        terminal = "TT",    # Terminal marker
+                        parameter = "GG",   # Parameter marker
+                        # Mutation possibilities:
+                        possibilities = {"char_delete":          0.010,
+                                         "char_insert":          0.025,
+                                         "char_replace":         0.025,
+                                         "frag_delete":          0.005,
+                                         "frag_move":            0.005,
+                                         "frag_copy":            0.010,
+                                         "device_insert":        0.025,
+                                         "chromosome_delete":    0.001,
+                                         "chromosome_copy":      0.001,
+                                         "chromosome_crossover": 0.001})
 
 class Controller:
     def __init__(self, file):
@@ -12,31 +32,19 @@ class Controller:
         print()
 
         print("Initializing AGE descriptor")
-        self.desc = Descriptor(alphabet = "ACGT",  # We use a biology-like alphabet
-                               # Neurons:
-                               devices = ["ACAA",  # Threshold activation function
-                                          "ACAC",  # Sigmoidal (exp) activation function
-                                          "ACAG"], # Linear activation function
-                               terminal = "TT",    # Terminal marker
-                               parameter = "GG",   # Parameter marker
-                               # Mutation possibilities:
-                               possibilities = {"char_delete":          0.020,
-                                                "char_insert":          0.050,
-                                                "char_replace":         0.050,
-                                                "frag_delete":          0.010,
-                                                "frag_move":            0.010,
-                                                "frag_copy":            0.025,
-                                                "device_insert":        0.050,
-                                                "chromosome_delete":    0.001,
-                                                "chromosome_copy":      0.001,
-                                                "chromosome_crossover": 0.001})
+        self.desc = DESCRIPTOR
         self.run = 0
         if (file==None):
             self.reset()
         else:
             print("Loading state: "+file)
             self.env = Environment()
-            self.env.load(file)
+            comments = self.env.load(file, self.desc)
+            print(*comments, sep = '\n')
+
+        print("Initializing Video")
+        self.video = Video(self, self.env)
+        #self.video.record("record/night_%d.zip"%self.run)
 
     def reset(self):
         self.run += 1
@@ -45,12 +53,7 @@ class Controller:
         print("Creating environment")
         self.env = Environment()
         #self.env.add_wallbox()
-        w = (10.0, 10.0)
-        self.seperation_wall = Wall(w, (self.env.size[0]-w[0], self.env.size[1]-w[1]))
-
-        print("Initializing Video")
-        self.video = Video(self, self.env)
-        #self.video.record("record/night_%d.zip"%self.run)
+        self.seperation_wall = Wall((-40.0, -40.0), (40.0, 40.0))
 
     def seperate(self):
         try:
@@ -69,13 +72,19 @@ class Controller:
             a = Agent(self.env.random_pos(), self.env.random_angle(), g)
             self.env.agents.append(a)
 
+    def clone(self, agent):
+        g = Genome(desc = self.desc, chromosomes = [c for c in agent.genome.chromosomes])
+        self.env.agents.append(Agent(self.env.random_pos(agent.pos, 5.0), self.env.random_angle(), g))
+
     def mainloop(self):
         print("Entering mainloop")
         try:
             while (self.video.handle_event()):
-                pass
                 if (len(self.env.agents)<5):
                     self.spawn(50)
+                if (len(self.env.food_patches)==0):
+                    for i in range(10):
+                        self.env.food_patches.append(FoodPatch(self.env.random_pos()))
         except KeyboardInterrupt:
             pass
         print("Quit mainloop")
@@ -90,5 +99,5 @@ if (__name__=="__main__"):
         file = None
 
     c = Controller(file)
-    #c.mainloop()
-    cProfile.run("c.mainloop()")
+    c.mainloop()
+    #cProfile.run("c.mainloop()")

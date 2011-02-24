@@ -1,7 +1,9 @@
 from pycann import Network
-from random import random, uniform, triangular
+from random import random, uniform, triangular, gauss, sample
 from math import sin, cos, sqrt, hypot, pi, isnan, isinf, modf
 from time import time
+from utils import *
+import age
 
 def ray_circle_intersect(E, d, C, r):
     """ Check for ray/circle intersection
@@ -43,13 +45,6 @@ def ray_ray_intersect(P0, D0, P1, D1):
         t = dot(perp(D0), vecsub(P1, P0))/denominator
         return s, t
 
-def in_range(x, m = 0.0, M = 1.0):
-    if (x<m):
-        return m
-    elif (x>M):
-        return M
-    else:
-        return x
 
 def random_or_fixed(v, rand = uniform):
     if (type(v)==int):
@@ -65,8 +60,8 @@ def random_or_fixed(v, rand = uniform):
 class Brain(Network):
     """ Implements a pycann network created from a genome. """
 
-    FIXED_INPUTS = 10 # (Health: 1, Tactile: 2, Vision: 6, Carry: 1)
-    FIXED_OUTPUTS = 7 # (Forward: 1, Turn: 2, Eat: 1, Mate: 1, Color: 1, Carry: 1)
+    FIXED_INPUTS = 11 # (Health: 1, Tactile: 2, Audio: 1, Vision: 6, Carry: 1)
+    FIXED_OUTPUTS = 8 # (Forward: 1, Turn: 2, Eat: 1, Mate: 1, Color: 1, Carry: 1, Sound: 1)
     
     def __init__(self, genome):
         # mapping for different activation functions
@@ -128,7 +123,7 @@ class Brain(Network):
 
     def process(self, inputs):
         self.set_inputs(*inputs)
-        self.step()
+        self.step(5)
         o = self.get_outputs()
         return o
 
@@ -145,13 +140,13 @@ class Agent:
         self.health = 500.0
         self.size = 0.0
         self.brain = None
-        self.last_action = (0.0, 0.0, False, False, 0.0)
-        self.last_perception = tuple((0.0 for i in range(10)))
+        self.last_action = (0.0, 0.0, False, False, 0.0, 0.0, 0.0)
+        self.last_perception = tuple((0.0 for i in range(11)))
         self.carry = None
         self.decode_genome()
 
     def __repr__(self):
-        return "<Agent pos=%s angle=%f health=%f size=%f action=%s>"%(repr(self.pos), self.angle, self.health, self.size, repr(self.last_action))
+        return "<Agent pos=%s angle=%f health=%f size=%f>"%(repr(self.pos), self.angle, self.health, self.size)
 
     def decode_genome(self):
         # TODO decode genome: size, color
@@ -162,28 +157,31 @@ class Agent:
 
 
     def get_color(self):
-        return (in_range(0.001*self.health),
+        return (clamp(0.001*self.health),
                 0.0,
                 self.last_action[4])
 
-    def get_action(self, tsolid, tfood, vleft, vright):
+    def get_action(self, tsolid, tfood, audio, vleft, vright):
         # Perception: Health,
         #             Tactile sensor,
+        #             Carry,
+        #             Audio,
         #             Vision left,
         #             Vision right,
-        #             Carry
         # Action:     Forward movement,
         #             Turning movement,
         #             Eating,
         #             Mating,
         #             Color,
         #             Carry
+        #             Sound
         TURN_RATE = 0.125*pi
-        SPEED = 0.5
+        SPEED = 0.5*self.size
         perception = (0.001*self.health,
                       1.0 if (tsolid) else 0.0,
                       1.0 if (tfood) else 0.0,
-                      1.0 if (self.carry!=None) else 0.0)+\
+                      1.0 if (self.carry!=None) else 0.0,
+                      audio)+\
                       vleft+vright
         self.last_perception = perception
         action = self.brain.process(perception)
@@ -191,8 +189,9 @@ class Agent:
                   (action[1]-action[2])*TURN_RATE,
                   action[3]>0.5,
                   action[4]>0.5,
-                  in_range(action[5]),
-                  action[6]>0.5)
+                  clamp(action[5]),
+                  action[6]>0.5,
+                  action[7])
         self.last_action = action
         return action
 
@@ -201,18 +200,18 @@ class FoodPatch:
     """ Class for food patches. Food patches supply health to the agents in
         a environment. The energy they supply is limited and decays. """
     
-    def __init__(self, pos, size = (4.0, 10.0), energy = (150.0, 500.0), decay = (1.0, 2.0)):
+    def __init__(self, pos, size = (5.0, 15.0), energy = (500.0, 1000.0), decay = (1.0, 10.0)):
         self.pos = pos
         self.size = random_or_fixed(size)
         self.energy = random_or_fixed(energy)
         self.decay = random_or_fixed(decay)
-        self.max_energy = self.energy
+        self.max_energy = self.energy if type(energy)!=tuple else energy[1]
 
     def __repr__(self):
         return "<FoodPatch pos=%s size=%f energy=%f decay=%f>"%(repr(self.pos), self.size, self.energy, self.decay)
 
     def get_color(self):
-        return (0.0, in_range(self.energy/self.max_energy, 0.1), 0.0)
+        return (0.0, clamp(self.energy/self.max_energy, 0.1), 0.0)
 
 class Wall:
     """ Class for walls. Agents can't move through them. """
@@ -235,41 +234,42 @@ class Environment:
         food patches. It coordinates movement and other actions between agents.
         """
     
-    def __init__(self, size = (300.0, 200.0), food_rate = 0.25, vision_percent = 0.10):
-        self.size = size
-        food_rate = modf(food_rate)
-        self.food_rate = (int(food_rate[1]), round(1.0/food_rate[0]) if food_rate[0]!=0 else None)
+    def __init__(self, vision_range = 100.0):
+        #self.food_rate = (int(food_rate[1]), round(1.0/food_rate[0]) if food_rate[0]!=0 else None)
+        self.food_rate = None # TODO
         self.agents = []
         self.food_patches = []
         self.walls = []
         self.t = 0
         self.comp_t = 0
-        self.vision_range = vision_percent*hypot(*self.size)
+        self.vision_range = vision_range
         self.memory_usage = 0
+        self.max_plants = 80
 
-    def step(self, ct_factor = 0.0):
+    def step(self):
         """ Do one time step in simulation. Time is measured in these steps. """
 
         t_start = time()
         self.memory_usage = 0
-        
+
         # decay food patches
+        new_food = []
         for f in self.food_patches:
             f.energy -= f.decay
             if (f.energy<=0.0):
                 self.food_patches.remove(f)
-            
-        # create food patches
-        def add_foodpatch():
-            offset = (0.5*self.size[0]+0.01*self.t,
-                      0.5*self.size[1])
-            p = ((triangular(-1.0, 1.0)*0.2*self.size[0]+offset[0])%self.size[0],
-                 (triangular(-1.0, 1.0)*0.2*self.size[1]+offset[1])%self.size[0])
-            self.food_patches.append(FoodPatch(p))
-        for i in range(int(self.food_rate[0])):
-            add_foodpatch()
-        if (self.food_rate[1]!=None and self.t%self.food_rate[1]==0):
-            add_foodpatch()
+
+        # grow new food patches
+        n = int(0.1*(self.max_plants-len(self.food_patches)))
+        if (n>0):
+            if (n>len(self.food_patches)):
+                n = len(self.food_patches)
+            for f in sample(self.food_patches, n):
+                self.food_patches.append(FoodPatch(self.random_pos(f.pos, 20.0)))
+                #self.food_patches.append(FoodPatch(self.random_pos((0.0, 0.0), 100.0)))
+
+        #  we cache agent-agent collision
+        self.collision_cache = {}
 
         # update agents
         for a in self.agents:
@@ -277,7 +277,7 @@ class Environment:
             self.memory_usage += a.memory_usage
             
             # constant lose of health
-            a.health -= 0.10*a.size
+            a.health -= 0.20*a.size
 
             # check if agent is close to another agent
             ab = self.is_in_agent(a)
@@ -293,20 +293,15 @@ class Environment:
             # action
             action = a.get_action(ab!=None or collision!=None,
                                   f!=None,
+                                  self.audio(a),
                                   self.vision(a, +0.01*pi),
                                   self.vision(a, -0.01*pi))
-            a.pos = ((a.pos[0]+action[0]/a.size*sin(a.angle))%self.size[0],
-                     (a.pos[1]+action[0]/a.size*cos(a.angle))%self.size[1])
+            a.pos = (a.pos[0]+action[0]/a.size*sin(a.angle),
+                     a.pos[1]+action[0]/a.size*cos(a.angle))
             a.angle = (a.angle+action[1])%(2.0*pi)
-            if (isnan(a.pos[0]) or isnan(a.pos[1]) or isnan(a.angle)):
-                print("Agent #%d"%self.agents.index(a))
-                print(a)
-                raise ValueError("Agent includes a NaN value: "+repr(a))
+
             # loose energy for moving forward and turning
-            if (action[0]):
-                a.health -= 0.1 if a.carry==None else 0.2
-            if (action[1]):
-                a.health -= 0.05
+            a.health -= 0.1*a.size + 0.05*action[0]*(2.0 if (a.carry!=None) else 1.0) + 0.01*action[1]
 
             # pick up food
             if (f!=None and f.energy>0.0 and action[5] and a.carry==None):
@@ -339,7 +334,7 @@ class Environment:
                 # and/or decrease health gain factor when eathing food (or
                 # decrease food rate so there aren't enough food patches)
                 if (action[2]):
-                    amount = min((ab.health, 3.0*a.size))
+                    amount = min((ab.health, 3.5*a.size))
                     a.health += 0.9*amount
                     ab.health -= amount
 
@@ -347,26 +342,21 @@ class Environment:
             # (turn them into food patches)
             if (a.health<=0.0):
                 self.agents.remove(a)
-                self.food_patches.append(FoodPatch(a.pos, a.size, (5.0, 10.0)))
+                #self.food_patches.append(FoodPatch(a.pos, a.size, (5.0, 10.0)))
 
         # increment time
         self.t += 1
-
-        # subtract computation time from health
         self.comp_t = time()-t_start
-        if (ct_factor!=0.0):
-            for a in self.agents:
-                a.health -= ct_factor*self.comp_t
 
     def vision(self, a, angle = 0.0):
         """ Returns the visual perception of an agent """
-        angle = (a.angle+angle)%(2*pi)
+        angle = (a.angle+angle)#%(2*pi)
         d = (sin(angle), cos(angle))
         ar = a.size
         nearest = (None, None)
         # collide vision ray with other agents and food patches
         for b in self.agents+self.food_patches:
-            if (a!=b and not circle_circle_intersect(a.pos, self.vision_range, b.pos, b.size)):
+            if (a!=b and circle_circle_intersect(a.pos, self.vision_range, b.pos, b.size)):
                 t = ray_circle_intersect(a.pos, d, b.pos, b.size)
                 if (t):
                     t = t[0] if (t[0]<t[1] and t[0]>ar) else t[1]
@@ -381,12 +371,19 @@ class Environment:
                 if (tw>0.0 and tw<1.0 and ta>=ar and ta<=self.vision_range and (nearest[0]==None or ta<nearest[0])):
                     nearest = (ta, w)
         if (nearest[1]!=None):
-            c = nearest[1].get_color()
-            if (type(c)!=tuple and len(c)!=3):
-                print(repr(c))
-            return c
+            return nearest[1].get_color()
         else:
             return (1.0, 1.0, 1.0)
+
+    def audio(self, a):
+        def get_audio(b):
+            r = hypot(a.pos[0]-b.pos[0], a.pos[1]-b.pos[1])
+            if (r<0.001):
+                return 0.0
+            else:
+                return b.last_action[6]*(r**-2)
+        f = filter(lambda b: a!=b, self.agents)
+        return sum(map(get_audio, f))
 
     def mate(self, a, b):
         """ Performs the action of mating agent a and b in an environment.
@@ -394,14 +391,16 @@ class Environment:
             crossed over genome. """
         pos = ((a.pos[0]+b.pos[0])/2,
                (a.pos[1]+b.pos[1])/2)
-        genome = a.genome.crossover(b.genome)
-        genome.mutate()
-        c = Agent(pos, self.random_angle(), genome)
-        # each parent gives 25% of its health to the child
-        c.health = 0.25*(a.health+b.health)
-        a.health *= 0.5
-        b.health *= 0.5
-        self.agents.append(c)
+        # forbid interracial crossovers
+        if (len(a.genome.chromosomes)==len(b.genome.chromosomes)):
+            genome = a.genome.crossover(b.genome)
+            genome.mutate()
+            c = Agent(pos, self.random_angle(), genome)
+            # each parent gives 25% of its health to the child
+            c.health = 0.25*(a.health+b.health)
+            a.health *= 0.5
+            b.health *= 0.5
+            self.agents.append(c)
 
     def is_in_foodpatch(self, a):
         """ Checks whether an agent is at a foodpatch """
@@ -412,10 +411,16 @@ class Environment:
 
     def is_in_agent(self, a):
         """ Checks whether an agent is near another agent """
-        for b in filter(lambda c: c!=a, self.agents):
-            if (circle_circle_intersect(a.pos, a.size, b.pos, b.size)):
-                return b
-        return None
+        try:
+            return self.collision_cache[a]
+        except KeyError:
+            r = None
+            for b in self.agents:
+                if (a!=b and circle_circle_intersect(a.pos, a.size, b.pos, b.size)):
+                    self.collision_cache[a] = b
+                    self.collision_cache[b] = a
+                    r = b
+            return r
 
     def is_in_wall(self, a):
         """ Checks whether an agent collides with a wall """
@@ -430,9 +435,9 @@ class Environment:
                     return w, cv
         return None
 
-    def random_pos(self):
+    def random_pos(self, mu = (0.0, 0.0), sigma = 50.0):
         """ Returns a random position in the environment. """
-        return (random()*self.size[0], random()*self.size[1])
+        return (gauss(mu[0], sigma), gauss(mu[1], sigma))
 
     def random_angle(self):
         """ Returns a random angle. """
@@ -451,21 +456,89 @@ class Environment:
             print(w, file = f)
         f.close()
 
-    def load(self, path):
-        pass # TODO
+    def load(self, path, agedesc):
+        def parse_kv(l, obj = None):
+            peq = []
+            p1 = 0
+            while (p1!=-1):
+                p1 = l.find("=", p1+1)
+                if (p1!=-1):
+                    p2 = l.rfind(" ", 0, p1)
+                    peq.append((p1, p2))
+            d = {}
+            for i in range(len(peq)):
+                p0 = peq[i][1]
+                p1 = peq[i][0]
+                try:
+                    p2 = peq[i+1][1]
+                except IndexError:
+                    p2 = -1
+                k = l[p0+1:p1]
+                v = l[p1+1:p2]
+                d[k] = eval(v, {"__builtins__": None})
+            if (obj!=None and hasattr(obj, "__setattr__")):
+                for k in d:
+                    obj.__setattr__(k, d[k])
+            return d
+                        
+        f = open(path, "r")
+        lines = f.readlines()
+        i = 0
+        comments = []
+        while (i<len(lines)):
+            l = lines[i].strip()
+            if (l==""):
+                i += 1
+            elif (l.startswith("#")):
+                comments.append(l.partition("#")[2])
+                i += 1
+            elif (l.startswith("<Environment")):
+                kv = parse_kv(l)
+                self.t = kv["t"]
+                self.vision_range = kv["vision_range"]
+                i += 1
+            elif (l.startswith("<Agent")):
+                kv = parse_kv(l)
+                i += 1
+                chromosomes = []
+                while (lines[i][0]!='<'):
+                    chromosomes.append(lines[i].strip())
+                    i += 1
+                genome = age.Genome(desc = agedesc, chromosomes = chromosomes)
+                agent = Agent(kv["pos"], kv["angle"], genome)
+                agent.health = kv["health"]
+                agent.size = kv["size"]
+                self.agents.append(agent)
+            elif (l.startswith("<FoodPatch")):
+                fp = FoodPatch((0.0, 0.0))
+                parse_kv(l, fp)
+                self.food_patches.append(fp)
+                i += 1
+            elif (l.startswith("<Wall")):
+                kv = parse_kv(l)
+                wall = Wall(kv["A"], kv["B"], kv["harm"], kv["color"])
+                self.walls.append(wall)
+                i += 1
+            else:
+                raise SyntaxError("Unknown line: "+l)
 
-    def add_wallbox(self, A = (1.0, 1.0), C = None):
+        return comments    
+                        
+
+
+    def add_wallbox(self, A = (-200, -200.0), B = None, C = None, D = None):
         if (C==None):
-            C = (self.size[0]-A[0],
-                 self.size[1]-A[1])
-        B = (A[0], C[1])
-        D = (C[0], A[1])
+            C = (-A[0], -A[1])
+        if (B==None):
+            B = (A[0], C[1])
+        if (D==None):
+            D = (C[0], A[1])
         self.walls.append(Wall(A, B))
         self.walls.append(Wall(B, C))
         self.walls.append(Wall(C, D))
         self.walls.append(Wall(D, A))
 
     def __repr__(self):
-        return "<Environment t=%d size=%s food_rate=%s vision_range=%f>"%(self.t, repr(self.size), repr(self.food_rate), self.vision_range)
+        return "<Environment t=%d food_rate=%s vision_range=%f>"%(self.t, repr(self.food_rate), self.vision_range)
 
 __all__ = ["Agent", "FoodPatch", "Environment", "Wall"]
