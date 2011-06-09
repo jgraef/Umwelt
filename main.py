@@ -73,8 +73,8 @@ class Controller:
             self.env.agents.append(a)
 
     def clone(self, agent):
-        g = Genome(desc = self.desc, chromosomes = [c for c in agent.genome.chromosomes])
-        self.env.agents.append(Agent(self.env.random_pos(agent.pos, 5.0), self.env.random_angle(), g))
+        genome = Genome(desc = self.desc, chromosomes = [c for c in agent.genome.chromosomes])
+        self.env.agents.append(Agent(self.env.random_pos(agent.pos, 5.0), self.env.random_angle(), genome, agent.generation))
 
     def mainloop(self):
         print("Entering mainloop")

@@ -133,7 +133,8 @@ class Agent:
         An agent consists of environmental information (position, angle, size
         and color), a health value, a genome and a neural network. """
     
-    def __init__(self, pos, angle, genome):
+    def __init__(self, pos, angle, genome, generation = 0.0):
+        self.generation = generation
         self.pos = pos
         self.angle = angle
         self.genome = genome
@@ -146,7 +147,7 @@ class Agent:
         self.decode_genome()
 
     def __repr__(self):
-        return "<Agent pos=%s angle=%f health=%f size=%f>"%(repr(self.pos), self.angle, self.health, self.size)
+        return "<Agent pos=%s angle=%f health=%f size=%f generation=%f>"%(repr(self.pos), self.angle, self.health, self.size, self.generation)
 
     def decode_genome(self):
         # TODO decode genome: size, color
@@ -260,7 +261,7 @@ class Environment:
                 self.food_patches.remove(f)
 
         # grow new food patches
-        n = int(0.1*(self.max_plants-len(self.food_patches)))
+        n = int(0.05*(self.max_plants-len(self.food_patches)))
         if (n>0):
             if (n>len(self.food_patches)):
                 n = len(self.food_patches)
@@ -395,7 +396,7 @@ class Environment:
         if (len(a.genome.chromosomes)==len(b.genome.chromosomes)):
             genome = a.genome.crossover(b.genome)
             genome.mutate()
-            c = Agent(pos, self.random_angle(), genome)
+            c = Agent(pos, self.random_angle(), genome, 0.5*(a.generation+b.generation)+1)
             # each parent gives 25% of its health to the child
             c.health = 0.25*(a.health+b.health)
             a.health *= 0.5
@@ -505,7 +506,11 @@ class Environment:
                     chromosomes.append(lines[i].strip())
                     i += 1
                 genome = age.Genome(desc = agedesc, chromosomes = chromosomes)
-                agent = Agent(kv["pos"], kv["angle"], genome)
+                try:
+                    generation = kv["generation"]
+                except KeyError:
+                    generation = 0.0
+                agent = Agent(kv["pos"], kv["angle"], genome, generation)
                 agent.health = kv["health"]
                 agent.size = kv["size"]
                 self.agents.append(agent)

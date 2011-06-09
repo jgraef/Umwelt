@@ -284,6 +284,9 @@ class Video:
                         pass
             elif (e.key==pygame.K_TAB):
                 self.show_hints = not self.show_hints
+            elif (e.key==pygame.K_p):
+                for a in filter(lambda x: type(x)==Agent, self.selection):
+                    print(a)
         elif (e.type==pygame.MOUSEBUTTONDOWN):
             if (e.button==1):
                 self.selection_rect = pygame.Rect(e.pos, (0, 0))
