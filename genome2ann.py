@@ -19,7 +19,7 @@ parser.add_option("-x", "--export", dest="export", default=None,
 
 # load chromosomes
 if (len(args)<1):
-    load_chromosomes(stdin)
+    chromosomes = load_chromosomes(stdin)
 else:
     chromosomes = load_chromosomes(open(args[0], "rt"))
     

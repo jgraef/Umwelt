@@ -15,16 +15,16 @@ DESCRIPTOR = Descriptor(alphabet = "ACGT",  # We use a biology-like alphabet
                         terminal = "TT",    # Terminal marker
                         parameter = "GG",   # Parameter marker
                         # Mutation possibilities:
-                        possibilities = {"char_delete":          0.010,
-                                         "char_insert":          0.025,
-                                         "char_replace":         0.025,
-                                         "frag_delete":          0.005,
-                                         "frag_move":            0.005,
-                                         "frag_copy":            0.010,
-                                         "device_insert":        0.025,
-                                         "chromosome_delete":    0.001,
-                                         "chromosome_copy":      0.001,
-                                         "chromosome_crossover": 0.001})
+                        possibilities = {"char_delete":          0.025,
+                                         "char_insert":          0.050,
+                                         "char_replace":         0.050,
+                                         "frag_delete":          0.010,
+                                         "frag_move":            0.010,
+                                         "frag_copy":            0.020,
+                                         "device_insert":        0.050,
+                                         "chromosome_delete":    0.002,
+                                         "chromosome_copy":      0.010,
+                                         "chromosome_crossover": 0.010})
 
 class Controller:
     def __init__(self, file):

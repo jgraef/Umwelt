@@ -58,7 +58,7 @@ def random_or_fixed(v, rand = uniform):
 
 
 class Brain(Network):
-    """ Implements a pycann network created from a genome. """
+    """ Implements an agents brain. Adds neurons to swarm brain. """
 
     FIXED_INPUTS = 11 # (Health: 1, Tactile: 2, Audio: 1, Vision: 6, Carry: 1)
     FIXED_OUTPUTS = 8 # (Forward: 1, Turn: 2, Eat: 1, Mate: 1, Color: 1, Carry: 1, Sound: 1)
@@ -72,12 +72,9 @@ class Brain(Network):
                                 "ACAG": "LINEAR"}
         # init network
         num_neurons = len(genome.devices)
+        
         Network.__init__(self, self.FIXED_INPUTS, max((0, num_neurons-self.FIXED_INPUTS-self.FIXED_OUTPUTS)), self.FIXED_OUTPUTS)
         self.set_learning_rate(0.02)
-        self.set_gamma(0,  0.1)
-        self.set_gamma(1,  0.01)
-        self.set_gamma(2,  0.01)
-        self.set_gamma(3, -0.01)
 
         # configure neurons
         for i in range(num_neurons):
@@ -85,7 +82,6 @@ class Brain(Network):
 
             # activation function
             self.set_activation_function(i, activation_functions[di.device])
-            #self.set_activation_function(i, "SIGMOID_STEP")
 
             # threshold
             try:
@@ -93,6 +89,19 @@ class Brain(Network):
             except IndexError:
                 t = 1.0
             self.set_threshold(i, t)
+
+            # set learning coefficients
+            gamma = [0.1, 0.01, 0.01, -0.01]
+            try:
+                gamma[0] = di.parameters[1][1]
+                gamma[1] = di.parameters[2][1]
+                gamma[2] = di.parameters[3][1]
+                gamma[3] = di.parameters[4][1]
+            except IndexError:
+                pass
+            self.set_threshold(i, t)
+            self.set_gamma(i,  tuple(gamma))
+
 
             # connect
             mc = None
@@ -235,7 +244,7 @@ class Environment:
         food patches. It coordinates movement and other actions between agents.
         """
     
-    def __init__(self, vision_range = 100.0):
+    def __init__(self, vision_range = 200.0):
         #self.food_rate = (int(food_rate[1]), round(1.0/food_rate[0]) if food_rate[0]!=0 else None)
         self.food_rate = None # TODO
         self.agents = []
